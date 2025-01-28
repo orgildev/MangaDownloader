@@ -58,7 +58,7 @@ public class DownloadManga extends DownloadImage {
         }
     }
 
-    private static void downloadChapter(String name, Path mangaFolderPath, int chapterIndex, String format) {
+    protected static void downloadChapter(String name, Path mangaFolderPath, int chapterIndex, String format) {
         String chapter = String.format(format, chapterIndex);
         String folderName = mangaFolderPath.resolve("Chapter " + chapterIndex).toString();
 

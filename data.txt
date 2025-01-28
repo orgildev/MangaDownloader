@@ -1,12 +1,1 @@
-gamshig-baatar,105,3
-solo-leveling,200,3
-Reality-Quest,147,1
-max-level-newbie,188,3
-baatruudiig-hunuu,153,1
-Nano-Machine,242,3
-Gungiin-ahin-torson-huu,57,2
-10000-jiliin-daraa-ergen-irsen-toglogch,104,3
-lookism,538,3
-tugsguliin-daraah-ehlel,188,1
-Umardiin-ildnii-domog,202,3
-Doom%20breaker,101,2
+weak-hero,10,1
