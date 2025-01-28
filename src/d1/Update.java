@@ -45,16 +45,17 @@ public class Update extends DownloadManga {
     }
     
     /**
-     * Get the appropriate chapter format string based on format type
-     * @param formatType 1 for "1", 2 for "01", 3 for "001"
+     * Get the appropriate chapter format string based on format type from data.txt
+     * @param formatType 1 for "[1,2,3]", 2 for "[01,02,03]", 3 for "[001,002,003]"
      * @return Format string for chapter numbers
      */
     private static String getChapterFormat(int formatType) {
         switch (formatType) {
-            case 1: return "%d";    // 1, 2, 3
-            case 2: return "%02d";  // 01, 02, 03
-            case 3: return "%03d";  // 001, 002, 003
-            default: return "%03d"; // default to 3 digits
+            case 1: return "%d";    // Simple numbers: 1, 2, 3
+            case 2: return "%02d";  // Two digits: 01, 02, 03
+            case 3: return "%03d";  // Three digits: 001, 002, 003
+            default: // If format type is invalid, try all formats
+                return null;
         }
     }
     
@@ -86,23 +87,21 @@ public class Update extends DownloadManga {
                         System.out.println("\n[INFO] Checking updates for: " + mangaName);
                         
                         int newChapters = 0;
-                        // Try each format type if not specified in data.txt
-                        if (!formatTypes.containsKey(mangaName)) {
-                            System.out.println("[INFO] No format specified for " + mangaName + ", trying all formats...");
-                            for (int formatType = 1; formatType <= 3; formatType++) {
-                                String format = getChapterFormat(formatType);
-                                newChapters = checkAndDownloadNewChapters(mangaName, format);
-                                if (newChapters > 0) {
-                                    System.out.println("[SUCCESS] Found correct format type: " + formatType);
-                                    break;
-                                }
-                            }
-                        } else {
-                            // Use the specified format type
+                        
+                        if (formatTypes.containsKey(mangaName)) {
+                            // Use the specified format type from data.txt
                             int formatType = formatTypes.get(mangaName);
                             String format = getChapterFormat(formatType);
-                            System.out.println("[INFO] Using format type " + formatType + " for " + mangaName);
-                            newChapters = checkAndDownloadNewChapters(mangaName, format);
+                            if (format != null) {
+                                System.out.println("[INFO] Using format type " + formatType + " for " + mangaName);
+                                newChapters = checkAndDownloadNewChapters(mangaName, format);
+                            } else {
+                                System.out.println("[WARN] Invalid format type " + formatType + " for " + mangaName + ", trying all formats...");
+                                newChapters = tryAllFormats(mangaName);
+                            }
+                        } else {
+                            System.out.println("[INFO] No format specified for " + mangaName + ", trying all formats...");
+                            newChapters = tryAllFormats(mangaName);
                         }
                         
                         if (newChapters > 0) {
@@ -132,6 +131,23 @@ public class Update extends DownloadManga {
         }
         
         return totalNewChapters.get();
+    }
+
+    /**
+     * Try all format types for a manga
+     * @param name The name of the manga
+     * @return Number of new chapters found
+     */
+    private static int tryAllFormats(String name) {
+        for (int formatType = 1; formatType <= 3; formatType++) {
+            String format = getChapterFormat(formatType);
+            int newChapters = checkAndDownloadNewChapters(name, format);
+            if (newChapters > 0) {
+                System.out.println("[SUCCESS] Found correct format type: " + formatType);
+                return newChapters;
+            }
+        }
+        return 0;
     }
 
     /**
