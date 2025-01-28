@@ -94,7 +94,7 @@ public class Update extends DownloadManga {
                             totalNewChapters.addAndGet(newChapters);
                             System.out.println("[SUCCESS] Downloaded " + newChapters + " new chapter(s) for " + mangaName);
                         } else {
-                            System.out.println("[INFO] No new chapters found for " + mangaName);
+                            System.out.println("[INFO] No new or missing chapters found for " + mangaName);
                         }
                     });
                 });
@@ -149,72 +149,88 @@ public class Update extends DownloadManga {
         System.out.println("[INFO] Last downloaded chapter for " + name + ": " + lastChapter);
         
         int newChapters = 0;
-        int currentChapter = 1; // Start from chapter 1
         int consecutiveFailures = 0;
         int maxConsecutiveFailures = 5;
         
         ExecutorService executor = Executors.newFixedThreadPool(3);
         
+        // First phase: Check and download all chapters from 1 to lastChapter
+        for (int currentChapter = 1; currentChapter <= lastChapter; currentChapter++) {
+            final int chapterToCheck = currentChapter;
+            final boolean[] chapterExists = {false};
+            
+            executor.submit(() -> {
+                String chapter = String.format(format, chapterToCheck);
+                String folderName = mangaPath.resolve("Chapter " + chapterToCheck).toString();
+                String page = "01";
+                
+                // Always try to download, even if the chapter directory exists
+                for (String fileType : new String[]{".jpg", ".webp", ".png"}) {
+                    String url = "https://zuragtnom.site//uploads/manga/" + name + "/chapters/ch" + chapter + "/" + page + fileType;
+                    if (download(folderName, page + fileType, url)) {
+                        synchronized(chapterExists) {
+                            chapterExists[0] = true;
+                        }
+                        downloadChapter(name, mangaPath, chapterToCheck, format);
+                        break;
+                    }
+                }
+            });
+            
+            try {
+                Thread.sleep(2000);
+                synchronized(chapterExists) {
+                    if (chapterExists[0] && !existingChapters.contains(chapterToCheck)) {
+                        newChapters++;
+                        System.out.println("[INFO] Downloaded missing chapter " + chapterToCheck);
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        
+        // Second phase: Check for new chapters beyond lastChapter
+        int currentChapter = lastChapter + 1;
         while (consecutiveFailures < maxConsecutiveFailures) {
             final int chapterToCheck = currentChapter;
-            if (!existingChapters.contains(chapterToCheck) || chapterToCheck == lastChapter) {
-                final boolean[] chapterExists = {false};
+            final boolean[] chapterExists = {false};
+            
+            executor.submit(() -> {
+                String chapter = String.format(format, chapterToCheck);
+                String folderName = mangaPath.resolve("Chapter " + chapterToCheck).toString();
+                String page = "01";
                 
-                executor.submit(() -> {
-                    String chapter = String.format(format, chapterToCheck);
-                    String folderName = mangaPath.resolve("Chapter " + chapterToCheck).toString();
-                    String page = "01";
-                    
-                    if (chapterToCheck == lastChapter) {
-                        try {
-                            Files.walk(Paths.get(folderName))
-                                .sorted((p1, p2) -> -p1.compareTo(p2))
-                                .forEach(path -> {
-                                    try {
-                                        Files.deleteIfExists(path);
-                                    } catch (IOException e) {
-                                        System.err.println("[ERROR] Failed to delete: " + path);
-                                    }
-                                });
-                        } catch (IOException e) {
-                            System.err.println("[ERROR] Failed to clean chapter folder: " + folderName);
+                for (String fileType : new String[]{".jpg", ".webp", ".png"}) {
+                    String url = "https://zuragtnom.site//uploads/manga/" + name + "/chapters/ch" + chapter + "/" + page + fileType;
+                    if (download(folderName, page + fileType, url)) {
+                        synchronized(chapterExists) {
+                            chapterExists[0] = true;
                         }
+                        downloadChapter(name, mangaPath, chapterToCheck, format);
+                        break;
                     }
-                    
-                    for (String fileType : new String[]{".jpg", ".webp", ".png"}) {
-                        String url = "https://zuragtnom.site//uploads/manga/" + name + "/chapters/ch" + chapter + "/" + page + fileType;
-                        if (download(folderName, page + fileType, url)) {
-                            synchronized(chapterExists) {
-                                chapterExists[0] = true;
-                            }
-                            downloadChapter(name, mangaPath, chapterToCheck, format);
+                }
+            });
+            
+            try {
+                Thread.sleep(2000);
+                synchronized(chapterExists) {
+                    if (!chapterExists[0]) {
+                        consecutiveFailures++;
+                        if (consecutiveFailures >= maxConsecutiveFailures) {
                             break;
                         }
+                    } else {
+                        consecutiveFailures = 0;
+                        newChapters++;
+                        System.out.println("[INFO] Downloaded new chapter " + chapterToCheck);
                     }
-                });
-                
-                try {
-                    Thread.sleep(2000);
-                    synchronized(chapterExists) {
-                        if (!chapterExists[0]) {
-                            consecutiveFailures++;
-                            if (currentChapter > lastChapter) {
-                                if (consecutiveFailures >= maxConsecutiveFailures) {
-                                    break;
-                                }
-                            }
-                        } else {
-                            consecutiveFailures = 0;
-                            if (!existingChapters.contains(chapterToCheck)) {
-                                newChapters++;
-                                System.out.println("[INFO] Downloaded chapter " + chapterToCheck);
-                            }
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
             }
             currentChapter++;
         }
@@ -237,7 +253,7 @@ public class Update extends DownloadManga {
         System.out.println("\nUpdate check complete.");
         
         if (totalNewChapters > 0) {
-            System.out.println("Successfully downloaded " + totalNewChapters + " new chapter(s) total!");
+            System.out.println("Successfully downloaded " + totalNewChapters + " new and missing chapter(s) total!");
         } else {
             System.out.println("No new or missing chapters found for any manga.");
         }
