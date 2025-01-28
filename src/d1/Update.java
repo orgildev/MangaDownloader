@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -12,11 +14,49 @@ import java.util.stream.Stream;
 
 public class Update extends DownloadManga {
     
-    private static final String[] CHAPTER_FORMATS = {
-        "%d",     // 1, 2, 3
-        "%02d",   // 01, 02, 03
-        "%03d"    // 001, 002, 003
-    };
+    /**
+     * Load format types from data.txt
+     * @return Map of manga names to their format types
+     */
+    private static Map<String, Integer> loadFormatTypes() {
+        Map<String, Integer> formatTypes = new HashMap<>();
+        Path dataFile = Paths.get("data.txt");
+        
+        if (Files.exists(dataFile)) {
+            try {
+                Files.lines(dataFile).forEach(line -> {
+                    String[] parts = line.split(",");
+                    if (parts.length >= 3) {
+                        String mangaName = parts[0];
+                        try {
+                            int formatType = Integer.parseInt(parts[2]);
+                            formatTypes.put(mangaName, formatType);
+                        } catch (NumberFormatException e) {
+                            System.err.println("[ERROR] Invalid format type for manga: " + mangaName);
+                        }
+                    }
+                });
+            } catch (IOException e) {
+                System.err.println("[ERROR] Failed to read data.txt: " + e.getMessage());
+            }
+        }
+        
+        return formatTypes;
+    }
+    
+    /**
+     * Get the appropriate chapter format string based on format type
+     * @param formatType 1 for "1", 2 for "01", 3 for "001"
+     * @return Format string for chapter numbers
+     */
+    private static String getChapterFormat(int formatType) {
+        switch (formatType) {
+            case 1: return "%d";    // 1, 2, 3
+            case 2: return "%02d";  // 01, 02, 03
+            case 3: return "%03d";  // 001, 002, 003
+            default: return "%03d"; // default to 3 digits
+        }
+    }
     
     /**
      * Updates all mangas in the Mangas directory
@@ -29,6 +69,8 @@ public class Update extends DownloadManga {
             return 0;
         }
 
+        // Load format types for each manga
+        Map<String, Integer> formatTypes = loadFormatTypes();
         AtomicInteger totalNewChapters = new AtomicInteger(0);
         
         // Create thread pool for concurrent manga updates
@@ -42,7 +84,27 @@ public class Update extends DownloadManga {
                     executor.submit(() -> {
                         String mangaName = mangaPath.getFileName().toString();
                         System.out.println("\n[INFO] Checking updates for: " + mangaName);
-                        int newChapters = checkAndDownloadNewChapters(mangaName);
+                        
+                        int newChapters = 0;
+                        // Try each format type if not specified in data.txt
+                        if (!formatTypes.containsKey(mangaName)) {
+                            System.out.println("[INFO] No format specified for " + mangaName + ", trying all formats...");
+                            for (int formatType = 1; formatType <= 3; formatType++) {
+                                String format = getChapterFormat(formatType);
+                                newChapters = checkAndDownloadNewChapters(mangaName, format);
+                                if (newChapters > 0) {
+                                    System.out.println("[SUCCESS] Found correct format type: " + formatType);
+                                    break;
+                                }
+                            }
+                        } else {
+                            // Use the specified format type
+                            int formatType = formatTypes.get(mangaName);
+                            String format = getChapterFormat(formatType);
+                            System.out.println("[INFO] Using format type " + formatType + " for " + mangaName);
+                            newChapters = checkAndDownloadNewChapters(mangaName, format);
+                        }
+                        
                         if (newChapters > 0) {
                             totalNewChapters.addAndGet(newChapters);
                             System.out.println("[SUCCESS] Downloaded " + newChapters + " new chapter(s) for " + mangaName);
@@ -75,9 +137,10 @@ public class Update extends DownloadManga {
     /**
      * Checks and downloads new chapters for a manga
      * @param name The name of the manga
+     * @param format The format string for chapter numbers
      * @return The number of new chapters downloaded
      */
-    public static int checkAndDownloadNewChapters(String name) {
+    public static int checkAndDownloadNewChapters(String name, String format) {
         Path mangaPath = Paths.get("Mangas", name);
         if (!Files.exists(mangaPath)) {
             System.err.println("[ERROR] Manga folder not found: " + name);
@@ -100,29 +163,40 @@ public class Update extends DownloadManga {
         while (moreChaptersExist) {
             final int chapterToCheck = currentChapter;
             final boolean[] chapterExists = {false};
-            final String[] workingFormat = {null}; // To store the format that works
             
             // Try to download the first page of the chapter to check if it exists
             executor.submit(() -> {
-                String page = "01";
+                String chapter = String.format(format, chapterToCheck);
                 String folderName = mangaPath.resolve("Chapter " + chapterToCheck).toString();
+                String page = "01";
                 
-                // Try each format type for the chapter
-                for (String format : CHAPTER_FORMATS) {
-                    String chapter = String.format(format, chapterToCheck);
-                    
-                    // Try each file type
-                    for (String fileType : new String[]{".jpg", ".webp", ".png"}) {
-                        String url = "https://zuragtnom.site//uploads/manga/" + name + "/chapters/ch" + chapter + "/" + page + fileType;
-                        if (download(folderName, page + fileType, url)) {
-                            synchronized(chapterExists) {
-                                chapterExists[0] = true;
-                                workingFormat[0] = format;
-                            }
-                            // Only now download the rest of the chapter
-                            downloadChapter(name, mangaPath, chapterToCheck, format);
-                            return;
+                // Delete existing chapter folder if it exists (to ensure complete download)
+                if (chapterToCheck == lastChapter) {
+                    try {
+                        Files.walk(Paths.get(folderName))
+                            .sorted((p1, p2) -> -p1.compareTo(p2)) // Reverse order for safe deletion
+                            .forEach(path -> {
+                                try {
+                                    Files.deleteIfExists(path);
+                                } catch (IOException e) {
+                                    System.err.println("[ERROR] Failed to delete: " + path);
+                                }
+                            });
+                    } catch (IOException e) {
+                        System.err.println("[ERROR] Failed to clean chapter folder: " + folderName);
+                    }
+                }
+                
+                // Try each file type
+                for (String fileType : new String[]{".jpg", ".webp", ".png"}) {
+                    String url = "https://zuragtnom.site//uploads/manga/" + name + "/chapters/ch" + chapter + "/" + page + fileType;
+                    if (download(folderName, page + fileType, url)) {
+                        synchronized(chapterExists) {
+                            chapterExists[0] = true;
                         }
+                        // Download the rest of the chapter
+                        downloadChapter(name, mangaPath, chapterToCheck, format);
+                        break;
                     }
                 }
             });
