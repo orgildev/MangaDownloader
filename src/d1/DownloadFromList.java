@@ -6,64 +6,125 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Downloads manga chapters from a list specified in a data file.
+ * Each line in the file should contain: manga_name,number_of_chapters,format_digits
+ */
 public class DownloadFromList extends DownloadManga {
-public static void main(String[] args) throws IOException {
-    // Use command line argument if provided, otherwise default to data.txt
-    String dataFile = args.length > 0 ? args[0] : "data.txt";
-    System.out.println("\n[INFO] Reading manga list from: " + dataFile);
     
-    try {
-        Object[][] array = readDataFile(dataFile);
-    	
-    	
-        System.out.println("Found " + array.length + " manga entries to process");
-        
-        for (Object[] manga : array) {
-            try {
-                String name = (String) manga[0];
-                int chapterAmount = Integer.parseInt(manga[1].toString());
-                String format = "%0"+((String) manga[2])+"d";
+    /**
+     * Represents a manga entry from the data file
+     */
+    private static class MangaEntry {
+        final String name;
+        final int chapterAmount;
+        final String formatPattern;
 
-                System.out.println("\nProcessing manga: " + name);
-                System.out.println("Chapters to download: " + chapterAmount);
-                
-                // Start downloading manga
-                downloadManga(name, chapterAmount, format);
-            } catch (Exception e) {
-                System.err.println("Error processing manga entry: " + e.getMessage());
-            }
+        MangaEntry(String name, int chapterAmount, String formatDigits) {
+            this.name = name;
+            this.chapterAmount = chapterAmount;
+            this.formatPattern = "%0" + formatDigits + "d";
         }
+    }
+
+    /**
+     * Main entry point for the manga list downloader
+     */
+    public static void main(String[] args) {
+        String dataFile = getDataFilePath(args);
+        System.out.println("\n[INFO] Reading manga list from: " + dataFile);
         
-        System.out.println("\nAll manga processing completed");
-    } catch (IOException e) {
-        System.err.println("Error reading data file: " + e.getMessage());
-        System.exit(1);
-    } catch (Exception e) {
-        System.err.println("Unexpected error: " + e.getMessage());
-        System.exit(1);
+        try {
+            List<MangaEntry> mangaList = readMangaList(dataFile);
+            processAllManga(mangaList);
+        } catch (IOException e) {
+            handleFatalError("Error reading data file", e);
+        } catch (Exception e) {
+            handleFatalError("Unexpected error", e);
+        }
     }
+
+    /**
+     * Gets the data file path from command line args or uses default
+     */
+    private static String getDataFilePath(String[] args) {
+        return args.length > 0 ? args[0] : "data.txt";
     }
-    
-    
-    
-    public static Object[][] readDataFile(String filePath) throws IOException {
-        List<Object[]> lines = new ArrayList<>();
+
+    /**
+     * Reads and parses the manga list from the data file
+     */
+    private static List<MangaEntry> readMangaList(String filePath) throws IOException {
+        List<MangaEntry> mangaList = new ArrayList<>();
         
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String line;
+            int lineNumber = 0;
             while ((line = reader.readLine()) != null) {
-                // Split by comma instead of whitespace
-                String[] values = line.trim().split(",");
-                if (values.length == 3) {
-                    Object[] row = new Object[3];
-                    row[0] = values[0].trim();  // manga name as String
-                    row[1] = Integer.parseInt(values[1].trim());  // chapter amount as int
-                    row[2] = values[2].trim();  // format digits as String
-                    lines.add(row);
+                lineNumber++;
+                try {
+                    MangaEntry entry = parseMangaEntry(line);
+                    if (entry != null) {
+                        mangaList.add(entry);
+                    }
+                } catch (Exception e) {
+                    System.err.println("[WARNING] Skipping invalid entry at line " + lineNumber + ": " + e.getMessage());
                 }
             }
         }
         
-        return lines.toArray(new Object[0][]);
+        return mangaList;
     }
+
+    /**
+     * Parses a single line from the data file into a MangaEntry
+     */
+    private static MangaEntry parseMangaEntry(String line) {
+        String[] values = line.trim().split(",");
+        if (values.length != 3) {
+            return null;
+        }
+
+        String name = values[0].trim();
+        int chapters = Integer.parseInt(values[1].trim());
+        String format = values[2].trim();
+
+        return new MangaEntry(name, chapters, format);
     }
+
+    /**
+     * Processes all manga entries in the list
+     */
+    private static void processAllManga(List<MangaEntry> mangaList) {
+        System.out.println("Found " + mangaList.size() + " manga entries to process");
+        
+        for (MangaEntry manga : mangaList) {
+            try {
+                processSingleManga(manga);
+            } catch (Exception e) {
+                System.err.println("[ERROR] Failed to process " + manga.name + ": " + e.getMessage());
+            }
+        }
+        
+        System.out.println("\nAll manga processing completed");
+    }
+
+    /**
+     * Processes a single manga entry
+     */
+    private static void processSingleManga(MangaEntry manga) throws IOException {
+        System.out.println("\nProcessing manga: " + manga.name);
+        System.out.println("Chapters to download: " + manga.chapterAmount);
+        
+        downloadManga(manga.name, manga.chapterAmount, manga.formatPattern);
+    }
+
+    /**
+     * Handles fatal errors that require program termination
+     */
+    private static void handleFatalError(String message, Exception e) {
+        System.err.println("[FATAL] " + message + ": " + e.getMessage());
+        e.printStackTrace();
+        System.exit(1);
+    }
+}

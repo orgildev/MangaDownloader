@@ -37,25 +37,32 @@ public class CleanupEmptyChapters {
     }
 
     private void checkAndDeleteEmptyChapter(File chapterDir) {
-        File[] files = chapterDir.listFiles();
-        
-        // Check if directory is empty or if it has no files (only subdirectories)
-        boolean isEmpty = files == null || files.length == 0;
-        if (!isEmpty) {
-            // Check if there are any files (not directories)
-            isEmpty = true;
-            for (File file : files) {
-                if (file.isFile()) {
-                    isEmpty = false;
-                    break;
-                }
-            }
-        }
-
-        if (isEmpty) {
+        if (!hasFiles(chapterDir)) {
             System.out.println("Deleting empty chapter: " + chapterDir.getName() + " from " + chapterDir.getParentFile().getName());
             deleteDirectory(chapterDir);
         }
+    }
+
+    /**
+     * Recursively checks if a directory or any of its subdirectories contain files
+     * @param directory The directory to check
+     * @return true if the directory contains files, false otherwise
+     */
+    private boolean hasFiles(File directory) {
+        File[] contents = directory.listFiles();
+        if (contents == null || contents.length == 0) {
+            return false;
+        }
+
+        for (File file : contents) {
+            if (file.isFile()) {
+                return true;
+            }
+            if (file.isDirectory() && hasFiles(file)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean deleteDirectory(File directory) {
